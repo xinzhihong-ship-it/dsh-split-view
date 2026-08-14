@@ -1,0 +1,21 @@
+{
+  "name": "@local/dsh-split-view",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "对话+轨迹左右分栏视图(常驻静态客户端插件)",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": {
+      "default": "./client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-runtime"]
+    }
+  }
+}
