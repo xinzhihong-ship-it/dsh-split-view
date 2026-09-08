@@ -69,8 +69,6 @@ window.__ModuleLoader__.load({
         }
       }, 'split-view: restore closed details panel on unload')
 
-      const absent = { getSnapshot: () => undefined, subscribe: () => () => {} }
-
       const DEFAULT_PANELS = { sidebar: 280, details: 0, narrow: false, narrowExpanded: false }
       const defaultPanelsSource = { getSnapshot: () => DEFAULT_PANELS, subscribe: () => () => {} }
 
@@ -109,55 +107,38 @@ window.__ModuleLoader__.load({
         return state
       }
 
+      const absent = { getSnapshot: () => undefined, subscribe: () => () => {} }
       const hookCache = new WeakMap()
       const sourceHook = (source) => {
-        const src = source === undefined || source === null ? absent : source
-        let hook = hookCache.get(src)
+        let hook = hookCache.get(source)
         if (hook === undefined) {
           hook = (selector) => {
-            const [state, setState] = React.useState(() => selector(src.getSnapshot()))
+            const [state, setState] = React.useState(() => selector(source.getSnapshot()))
             const stateRef = React.useRef(state)
             const selRef = React.useRef(selector)
             selRef.current = selector
             React.useEffect(() => {
               const check = () => {
-                const next = selRef.current(src.getSnapshot())
+                const next = selRef.current(source.getSnapshot())
                 if (!Object.is(next, stateRef.current)) {
                   stateRef.current = next
                   setState(next)
                 }
               }
-              const current = selRef.current(src.getSnapshot())
+              const current = selRef.current(source.getSnapshot())
               if (!Object.is(current, stateRef.current)) {
                 stateRef.current = current
                 setState(current)
               }
-              return src.subscribe(check)
+              return source.subscribe(check)
             }, [])
             return state
           }
-          hookCache.set(src, hook)
+          hookCache.set(source, hook)
         }
         return hook
       }
       const absentHook = sourceHook(absent)
-
-      let hostCache
-      const getHost = () => {
-        if (hostCache !== undefined) return hostCache
-        try {
-          hostCache = slots.hostFace()
-        } catch (error) {
-          hostCache = null
-          console.error('[split-view] slot renderer host unavailable:', error)
-        }
-        return hostCache
-      }
-      const absentHost = {
-        sessions: { list: absent, provideInfo: absent },
-        workspaces: { list: absent },
-        locale: undefined
-      }
 
       class PanelErrorBoundary extends React.Component {
         constructor(props) {
@@ -179,80 +160,62 @@ window.__ModuleLoader__.load({
         }
       }
 
+      // conversation.view is owned by conversation.session in the current SlotMap.
+      // A details entry cannot declare it a second time, so keep this adapter
+      // isolated to the trajectory entry and forward the current standard props.
       function SplitDetailsPanel(props) {
         const sessionId = props.sessionId
         useSlotVersion('conversation.view')
-        useSlotVersion('conversation.session')
-
-        const host = getHost() ?? absentHost
-        const info = useSourceSelector(host.sessions.provideInfo, (s) => s)
 
         const trajectoryEntry = slots.entries('conversation.view').find((e) => e.options.id === 'trajectory')
-        const chatEntry = slots.entries('conversation.session').find((e) => e.store !== undefined)
-
-        let chatStore
-        if (chatEntry !== undefined && host !== absentHost) {
-          try {
-            chatStore = host.storeOf(chatEntry, sessionId)
-          } catch (error) {
-            console.error('[split-view] chat store unavailable:', error)
-          }
-        }
-
         const injected = React.useMemo(() => {
           if (trajectoryEntry === undefined) return undefined
           try {
             return trajectoryEntry.inject(sessionId)
           } catch (error) {
-            console.error('[split-view] trajectory inject failed:', error)
+            console.error('[split-view] trajectory adapter injection failed:', error)
             return undefined
           }
         }, [trajectoryEntry, sessionId])
-
-        const localeRevision = host.locale === undefined ? 0 : useSourceSelector(host.locale, (s) => s.revision)
-        const t = React.useMemo(() => {
-          if (host.locale === undefined || trajectoryEntry === undefined || trajectoryEntry.locale === undefined) return (key) => key
-          try {
-            const bound = host.locale.bind(trajectoryEntry.locale)
-            return (key, params) => bound(key, params)
-          } catch (error) {
-            return (key) => key
-          }
-        }, [host, trajectoryEntry, localeRevision])
-
-        const inspect = chatStore === undefined ? null : useSourceSelector(chatStore, (s) => s.inspect ?? null)
-        const onInspectDone = React.useCallback(() => {
-          if (chatStore !== undefined) chatStore.actions.setInspect(null)
-        }, [chatStore])
+        const durationSource = injected?.hooks?.duration ?? absent
+        const useDuration = sourceHook(durationSource)
+        const Comp = trajectoryEntry?.component
 
         React.useEffect(() => {
           if (!closedByUser) layout.openDetails()
         }, [sessionId])
 
-        const Comp = trajectoryEntry === undefined ? undefined : trajectoryEntry.component
-        let title = t('view.trajectory')
-        if (title === 'view.trajectory') title = '轨迹'
-
         let body
         if (Comp === undefined) {
           body = React.createElement('div', { className: 'dsp-hint' }, '轨迹视图未加载 (ui-trajectory 未安装)')
         } else {
-          const useSession = info !== undefined && info.hooks !== undefined && info.hooks.session !== undefined ? sourceHook(info.hooks.session) : absentHook
-          const useDuration = injected !== undefined && injected.hooks !== undefined && injected.hooks.duration !== undefined ? sourceHook(injected.hooks.duration) : absentHook
+          const noop = () => {}
+          const loadOlder = injected?.loadOlder ?? (async () => false)
+          const loadImage = injected?.loadImage ?? (() => null)
+          const setActualDuration = injected?.setActualDuration ?? noop
+          const renderSlot = typeof props.renderSlot === 'function' ? props.renderSlot : () => null
+          const title = typeof props.t === 'function' ? props.t('view.trajectory') : '轨迹'
           body = React.createElement(PanelErrorBoundary, null, React.createElement(Comp, {
-            useSession,
+            ...props,
+            useSession: props.useSession ?? absentHook,
+            useTrajectory: props.useTrajectory ?? absentHook,
             useDuration,
-            loadOlder: injected === undefined ? undefined : injected.loadOlder,
-            setActualDuration: injected === undefined ? undefined : injected.setActualDuration,
-            inspect,
-            onInspectDone,
-            t
+            loadOlder,
+            loadImage,
+            setActualDuration,
+            viewRequest: props.viewRequest ?? null,
+            completeViewRequest: props.completeViewRequest ?? noop,
+            renderSlot,
+            t: typeof props.t === 'function' ? props.t : (key) => key,
+            inspect: null,
+            onInspectDone: noop,
+            title
           }))
         }
 
         return React.createElement('div', { className: 'dsp-panel' },
           React.createElement('div', { className: 'dsp-header' },
-            React.createElement('div', { className: 'dsp-title' }, title),
+            React.createElement('div', { className: 'dsp-title' }, typeof props.t === 'function' ? props.t('view.trajectory') : '轨迹'),
             React.createElement('button', {
               type: 'button',
               className: 'dsp-close',
@@ -401,7 +364,11 @@ window.__ModuleLoader__.load({
         })
       }
 
-      slots.inject('details', () => slots.register({ name: 'details', priority: -10 }, SplitDetailsPanel))
+      slots.inject('details', () => slots.register({
+        name: 'details',
+        priority: -10,
+        locale: 'trajectory'
+      }, SplitDetailsPanel))
       slots.inject('shell.overlay', () => slots.register({ name: 'shell.overlay', id: 'dsp-resize-handle', priority: -10 }, WidthController))
     }
 
