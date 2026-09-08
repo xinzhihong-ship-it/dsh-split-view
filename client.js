@@ -213,7 +213,12 @@ window.__ModuleLoader__.load({
         id: TRAJECTORY_TAB_ID,
         kind: TRAJECTORY_KIND,
         priority: 'extension',
-        title: () => '轨迹'
+        title: () => '轨迹',
+        guide: [{
+          order: 20,
+          title: () => '轨迹',
+          description: () => '查看当前会话的思考过程、工具调用和执行记录。'
+        }]
       }), 'split-view: register trajectory tab type')
 
       ctx.effect(() => slots.inject('sidebar.right.pane.tab', () => slots.register({

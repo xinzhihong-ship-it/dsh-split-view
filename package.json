@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-split-view",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "description": "对话+轨迹左右分栏视图(常驻静态客户端插件)",
