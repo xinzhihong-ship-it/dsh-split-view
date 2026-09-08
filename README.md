@@ -12,7 +12,7 @@ DSH 对话 + 轨迹左右分栏插件(常驻静态客户端插件版)。
 - **关闭与重开**:面板右上角 × 关闭后,页面右缘出现竖排「轨迹」小标签,点一下立即重开;
 - **状态记忆**:关闭状态同样被记住——你关了它,切换会话、刷新页面都保持关闭;重开后则一直跟随显示;
 - **自动加载**:作为静态客户端插件随页面每次加载自动挂载,不需要运行卡片、不需要批准、不随进程重启丢失;
-- **版本适配**:详情面板通过 `conversation.view` 的轨迹注册项适配当前 DSH 版本,转发 `useSession`、`useTrajectory` 等标准会话 Hook,不再假定旧版固定参数。
+- **版本适配**:兼容 DSH `0.1.5-alpha.1` 的 `rightbar` 槽位以及旧版 `details` 槽位;通过 `conversation.view` 的轨迹注册项转发 `useSession`、`useTrajectory` 等标准会话 Hook,不再假定旧版固定参数。
 
 ## 安装
 
@@ -50,5 +50,6 @@ DSH 对话 + 轨迹左右分栏插件(常驻静态客户端插件版)。
 
 - 宽度与关闭状态分别存储在 `localStorage` 的 `dsh.split-view.detailsWidth` 与 `dsh.split-view.closedByUser` 中;
 - 插件以 `priority: -10` 注册,遮蔽内置详情面板并接管右栏宽度;
-- 当前 DSH 的 `conversation.view` 由 `conversation.session` 独占声明,详情槽不能重复声明它;因此插件保留一个隔离的轨迹注册项兼容适配器,避免触碰会话 Store 和 Host 私有面;
+- 当前 DSH 的右栏槽位已从 `details` 改名为 `rightbar`;插件同时等待两个槽位,自动选择当前版本;
+- 当前 DSH 的 `conversation.view` 由 `conversation.session` 独占声明,右栏槽不能重复声明它;因此插件保留一个隔离的轨迹注册项兼容适配器,避免触碰会话 Store 和 Host 私有面;
 - 若改包名,需同步修改 `cordis.patch.yml` 中的 `name` 与 `package.json` 的 `name`。

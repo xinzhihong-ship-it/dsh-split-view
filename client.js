@@ -15,8 +15,8 @@ window.__ModuleLoader__.load({
       '.dsp-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}',
       '.dsp-hint{color:var(--dsw-alias-label-tertiary);padding:12px 16px;font-size:13px;line-height:20px}',
       '.dsp-error{color:var(--dsw-alias-state-error-primary);padding:12px 16px;font-size:13px;line-height:20px;white-space:pre-wrap}',
-      '[data-slot="root"] > div{grid-template-columns:var(--dsp-sidebar-track,280px) minmax(0,1fr) var(--dsp-details-track,0px)!important}',
-      '[data-side="details"]{display:none!important}',
+      '[data-slot="root"] > div{grid-template-columns:var(--dsp-sidebar-track,280px) minmax(0,1fr) var(--dsp-rightbar-track,0px)!important}',
+      '[data-side="details"],[data-side="rightbar"]{display:none!important}',
       '.dsp-handle{position:absolute;top:0;bottom:0;width:8px;margin-left:-4px;cursor:col-resize;touch-action:none;pointer-events:auto;z-index:2}',
       '.dsp-handle::after{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:12px;height:32px;border-radius:10px;background:var(--dsw-alias-button-floating-fill);border:1px solid var(--dsw-alias-border-l2-darkmode-thin);opacity:0;transition:opacity var(--ds-transition-duration-slow) var(--ds-ease-in-out)}',
       '.dsp-handle:hover::after,.dsp-handle[data-dragging="true"]::after{opacity:1}',
@@ -52,6 +52,14 @@ window.__ModuleLoader__.load({
     exports.apply = (ctx) => {
       const slots = ctx.slots
       const layout = ctx.layout
+      const openPanel = () => {
+        if (typeof layout.openRightbar === 'function') layout.openRightbar(true, false)
+        else layout.openDetails()
+      }
+      const closePanel = () => {
+        if (typeof layout.closeRightbar === 'function') layout.closeRightbar()
+        else layout.closeDetails()
+      }
 
       const style = document.createElement('style')
       style.setAttribute('data-dsh', 'split-view')
@@ -63,13 +71,21 @@ window.__ModuleLoader__.load({
 
       ctx.effect(() => () => {
         try {
-          layout.closeDetails()
+          closePanel()
         } catch (error) {
-          console.error('[split-view] failed to close details on unload:', error)
+          console.error('[split-view] failed to close trajectory panel on unload:', error)
         }
-      }, 'split-view: restore closed details panel on unload')
+      }, 'split-view: restore closed trajectory panel on unload')
 
-      const DEFAULT_PANELS = { sidebar: 280, details: 0, narrow: false, narrowExpanded: false }
+      const DEFAULT_PANELS = {
+        sidebar: 280,
+        details: 0,
+        rightbar: null,
+        rightbarShown: false,
+        rightbarTrack: false,
+        narrow: false,
+        narrowExpanded: false
+      }
       const defaultPanelsSource = { getSnapshot: () => DEFAULT_PANELS, subscribe: () => () => {} }
 
       const useSlotVersion = (key) => {
@@ -161,8 +177,8 @@ window.__ModuleLoader__.load({
       }
 
       // conversation.view is owned by conversation.session in the current SlotMap.
-      // A details entry cannot declare it a second time, so keep this adapter
-      // isolated to the trajectory entry and forward the current standard props.
+      // The shell's right-column slot changed from details to rightbar in DSH
+      // 0.1.5; keep this adapter independent of that shell rename.
       function SplitDetailsPanel(props) {
         const sessionId = props.sessionId
         useSlotVersion('conversation.view')
@@ -182,7 +198,7 @@ window.__ModuleLoader__.load({
         const Comp = trajectoryEntry?.component
 
         React.useEffect(() => {
-          if (!closedByUser) layout.openDetails()
+          if (!closedByUser) openPanel()
         }, [sessionId])
 
         let body
@@ -226,7 +242,7 @@ window.__ModuleLoader__.load({
                 try {
                   window.localStorage.setItem(CLOSED_KEY, '1')
                 } catch (error) {}
-                layout.closeDetails()
+                closePanel()
               }
             }, React.createElement('svg', { viewBox: '0 0 16 16', width: 14, height: 14, 'aria-hidden': true },
               React.createElement('path', { d: 'M4 4l8 8M12 4l-8 8', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })))
@@ -277,8 +293,10 @@ window.__ModuleLoader__.load({
         const sidebarTrack = sidebarRaw === 0 ? 56 : Math.min(420, Math.max(264, Math.round(sidebarRaw)))
         const maxW = Math.max(MIN_DETAILS_WIDTH, viewport - sidebarTrack - CENTER_FLOOR)
 
+        const panelTrackOpen = panels.rightbarTrack !== undefined ? panels.rightbarTrack === true : panels.details !== 0
+
         React.useEffect(() => {
-          if (panels.details === 0 || !hasSession) {
+          if (!panelTrackOpen || !hasSession) {
             if (wRef.current !== 0) {
               wRef.current = 0
               setW(0)
@@ -290,7 +308,7 @@ window.__ModuleLoader__.load({
             lastWRef.current = next
             setW(next)
           }
-        }, [panels.details, hasSession, maxW])
+        }, [panelTrackOpen, hasSession, maxW])
 
         React.useEffect(() => {
           if (wRef.current > maxW) {
@@ -303,9 +321,11 @@ window.__ModuleLoader__.load({
         React.useEffect(() => {
           const root = document.documentElement
           root.style.setProperty('--dsp-sidebar-track', sidebarTrack + 'px')
+          root.style.setProperty('--dsp-rightbar-track', w + 'px')
           root.style.setProperty('--dsp-details-track', w + 'px')
           return () => {
             root.style.removeProperty('--dsp-sidebar-track')
+            root.style.removeProperty('--dsp-rightbar-track')
             root.style.removeProperty('--dsp-details-track')
           }
         }, [sidebarTrack, w])
@@ -327,7 +347,7 @@ window.__ModuleLoader__.load({
               try {
                 window.localStorage.removeItem(CLOSED_KEY)
               } catch (error) {}
-              layout.openDetails()
+              openPanel()
             }
           }, '轨迹')
         }
@@ -364,11 +384,13 @@ window.__ModuleLoader__.load({
         })
       }
 
-      slots.inject('details', () => slots.register({
-        name: 'details',
+      const registerPanel = (name) => slots.inject(name, () => slots.register({
+        name,
         priority: -10,
         locale: 'trajectory'
       }, SplitDetailsPanel))
+      registerPanel('rightbar')
+      registerPanel('details')
       slots.inject('shell.overlay', () => slots.register({ name: 'shell.overlay', id: 'dsp-resize-handle', priority: -10 }, WidthController))
     }
 
